@@ -2,142 +2,170 @@
 
 # 🧠 Sleep Stage Classification Using Deep Learning
 
-### EEG Signal Analysis · CNN + BiLSTM + Attention
+### Multi-channel PSG signals · Residual CNN + BiLSTM + Attention
 
-**Undergraduate Thesis | Computer Science and Engineering**  
-**University of Asia Pacific, Bangladesh**
+**Undergraduate Thesis · B.Sc. in Computer Science and Engineering**
+**University of Asia Pacific, Dhaka, Bangladesh**
 
-![Python](https://img.shields.io/badge/Python-Research-3776AB?style=for-the-badge&logo=python&logoColor=white)
-![Jupyter](https://img.shields.io/badge/Jupyter-Notebook-F37626?style=for-the-badge&logo=jupyter&logoColor=white)
-![Deep Learning](https://img.shields.io/badge/Deep%20Learning-CNN%20%2B%20BiLSTM%20%2B%20Attention-6C63FF?style=for-the-badge)
-![Dataset](https://img.shields.io/badge/Dataset-Sleep--EDF-00897B?style=for-the-badge)
+![Python](https://img.shields.io/badge/Python-3776AB?style=for-the-badge&logo=python&logoColor=white)
+![TensorFlow](https://img.shields.io/badge/TensorFlow_2.10-FF6F00?style=for-the-badge&logo=tensorflow&logoColor=white)
+![scikit-learn](https://img.shields.io/badge/scikit--learn-F7931E?style=for-the-badge&logo=scikitlearn&logoColor=white)
+![MNE](https://img.shields.io/badge/MNE--Python-EEG-4B8BBE?style=for-the-badge)
+![Jupyter](https://img.shields.io/badge/Jupyter-F37626?style=for-the-badge&logo=jupyter&logoColor=white)
 
-**Automated classification of five sleep stages from EEG signals using a deep learning approach.**
+**Automatic 5-class sleep staging (W, N1, N2, N3, REM) from EEG, EOG and EMG recordings of the Sleep-EDF Expanded dataset.**
 
-[Explore the Notebook](./Untitled.ipynb) · [Dataset Information](https://physionet.org/content/sleep-edfx/1.0.0/)
+| Test accuracy | Macro F1 | Recordings | 30-s epochs | Parameters |
+|:---:|:---:|:---:|:---:|:---:|
+| **77.17 %** | **0.768** | 197 | 28,158 | 3.6 M |
+
+[📓 Open the notebook](./Untitled.ipynb) · [📂 Dataset (PhysioNet)](https://physionet.org/content/sleep-edfx/1.0.0/)
 
 </div>
 
 ---
 
-## 📌 Project Overview
+## 📌 Overview
 
-Sleep staging is an important part of understanding sleep patterns. This undergraduate research project investigates how **deep learning** can classify sleep stages automatically from **electroencephalogram (EEG) signals**.
+Manual sleep staging by experts is slow and subjective. This project builds an end-to-end deep learning pipeline that reads raw polysomnography (PSG) recordings and predicts the sleep stage of each 30-second epoch.
 
-The workflow combines EEG preprocessing with a **CNN + Bidirectional LSTM + Attention** model to learn relevant signal features and temporal relationships.
+The model combines three ideas:
 
-### 🎯 Research Objectives
+- **Residual 1D convolutions** learn local waveform features (spindles, K-complexes, slow waves).
+- **Bidirectional LSTMs** model how the signal changes over time.
+- **Attention pooling** lets the model focus on the most informative parts of each sequence.
 
-- Prepare EEG recordings for automated sleep-stage analysis.
-- Classify sleep epochs into **Wake (W), N1, N2, N3, and REM**.
-- Explore the effectiveness of combining convolutional, recurrent, and attention-based components.
-- Evaluate model performance across different sleep stages.
+---
+
+## 📊 Dataset
+
+| Item | Details |
+|:--|:--|
+| Source | [Sleep-EDF Database Expanded v1.0.0](https://physionet.org/content/sleep-edfx/1.0.0/) (PhysioNet) |
+| Subsets | Sleep Cassette (153 recordings) + Sleep Telemetry (44 recordings) |
+| Channels | EEG Fpz-Cz, EEG Pz-Oz, EOG horizontal, EMG submental |
+| Sampling rate | 100 Hz |
+| Epoch length | 30 seconds |
+| Classes | W, N1, N2, N3 (stages 3 and 4 merged, AASM style), REM |
+| Total samples | 28,158 epochs |
+
+**Class distribution:** W 4,460 · N1 7,292 · N2 8,171 · N3 6,282 · REM 1,953
+
+---
+
+## ⚙️ Pipeline
+
+```mermaid
+flowchart LR
+    A[PSG + Hypnogram<br/>EDF files] --> B[Channel selection<br/>EEG ×2, EOG, EMG]
+    B --> C[Resample to 100 Hz<br/>30-s epochs]
+    C --> D[Per-epoch<br/>z-score normalization]
+    D --> E[Context window<br/>previous + current + next epoch]
+    E --> F[Residual CNN]
+    F --> G[BiLSTM ×2]
+    G --> H[Attention pooling]
+    H --> I[Dense + Softmax<br/>W · N1 · N2 · N3 · REM]
+```
+
+1. **Loading:** PSG and hypnogram files are read with MNE-Python, and sleep-stage annotations are mapped to 5 classes.
+2. **Normalization:** each epoch is standardized (zero mean, unit variance) to reduce differences between subjects and devices.
+3. **Context:** each sample includes its neighbouring epochs (input length 3 × 3,001 = 9,003 time steps). Context never crosses recording boundaries.
+4. **Class imbalance:** handled with balanced class weights during training.
 
 ---
 
 ## 🏗️ Model Architecture
 
-```mermaid
-flowchart TD
-    A[Sleep-EDF EEG Signals] --> B[Signal Preprocessing]
-    B --> C[Epoch Segmentation]
-    C --> D[CNN Feature Extraction]
-    D --> E[Bidirectional LSTM]
-    E --> F[Attention Mechanism]
-    F --> G[Sleep Stage Classification]
-    G --> H[W · N1 · N2 · N3 · REM]
-```
-
-**Pipeline:** EEG input → preprocessing → segmentation → CNN → BiLSTM → Attention → five-class prediction.
-
----
-
-## 📊 Dataset and Methodology
-
-| Component | Description |
+| Block | Configuration |
 |:--|:--|
-| **Dataset** | Sleep-EDF (PhysioNet) |
-| **Input** | EEG recordings |
-| **Sampling rate** | 100 Hz |
-| **Epoch duration** | 30 seconds |
-| **Preprocessing** | Signal segmentation and standardization |
-| **Classes** | W, N1, N2, N3, REM |
-| **Model** | CNN + BiLSTM + Attention |
+| Input | 9,003 time steps × 4 channels |
+| Residual CNN | 3 blocks (128 → 256 → 256 filters, kernel 7), BatchNorm, ReLU, MaxPool, Dropout 0.2 |
+| BiLSTM | 2 layers (256 and 128 units per direction) |
+| Attention | Additive attention pooling over time |
+| Classifier | Dense 256 → Dense 128 (Dropout 0.5) → Softmax (5 classes) |
+| Parameters | 3,603,206 |
 
-> **Note:** The table summarizes the thesis workflow. For implementation details, inspect the notebook and its preprocessing steps.
+**Training setup:** Adam (lr = 3e-4), sparse categorical cross-entropy, batch size 32, up to 60 epochs, ReduceLROnPlateau and EarlyStopping (best weights restored from epoch 41). Data split 80 / 10 / 10 (train / validation / test), stratified by class.
 
 ---
 
-## 📈 Research Results
+## 📈 Results
+
+Evaluated on the held-out test set (2,816 epochs):
+
+| Stage | Precision | Recall | F1-score | Support |
+|:--|:--:|:--:|:--:|:--:|
+| W | 0.739 | 0.883 | 0.805 | 446 |
+| N1 | 0.803 | 0.641 | 0.713 | 730 |
+| N2 | 0.784 | 0.719 | 0.750 | 817 |
+| N3 | 0.799 | 0.900 | 0.846 | 628 |
+| REM | 0.652 | 0.815 | 0.724 | 195 |
+| **Macro avg** | **0.755** | **0.792** | **0.768** | 2,816 |
+| **Overall accuracy** | | | **0.7717** | |
 
 <div align="center">
 
-### **77.17%**
+### Confusion Matrix
+<img src="images/confusion_matrix.png" width="480" alt="Confusion matrix">
 
-**Reported overall classification accuracy**
+### Training Curves
+<img src="images/training_curves.png" width="800" alt="Accuracy and loss curves">
 
 </div>
 
-The model was evaluated on five sleep-stage classes. Performance can vary by class, particularly for stages that are harder to distinguish from EEG signals.
+**Observations**
 
-<!-- To display your real results, upload the figures to an images/ folder and remove the comment markers below.
-### Confusion Matrix
-![Confusion Matrix](./images/confusion_matrix.png)
-
-### Training Curves
-![Training Curves](./images/training_curves.png)
--->
+- **N3 (deep sleep)** and **Wake** are recognized best (F1 0.85 and 0.80).
+- **N1** is the hardest stage. It is often confused with Wake and N2, which matches what is reported in the sleep-staging literature.
+- Most N2 errors are predicted as N3, since both stages share slow-wave activity.
 
 ---
 
-## 🛠️ Tools and Technologies
+## 🔍 Limitations and Future Work
 
-- **Language:** Python
-- **Environment:** Jupyter Notebook
-- **Research areas:** Deep Learning, EEG Signal Processing, Time-Series Classification
-- **Model components:** CNN, BiLSTM, Attention
+- The data split is done at the **epoch level**, so epochs from the same recording can appear in both training and test sets. A **subject-wise split** (e.g. leave-subjects-out cross-validation) would give a stricter estimate of how well the model generalizes to new people.
+- The gap between training and validation accuracy suggests some overfitting. Stronger regularization or data augmentation could help.
+- Next steps: longer context windows, subject-wise cross-validation, and comparison with baselines such as DeepSleepNet and AttnSleep.
 
 ---
 
-## 📁 Repository Contents
+## 🚀 How to Run
+
+```bash
+git clone https://github.com/Farhan2580/Sleep-EDF-Thesis.git
+cd Sleep-EDF-Thesis
+pip install tensorflow==2.10 mne scikit-learn numpy matplotlib jupyter
+jupyter notebook Untitled.ipynb
+```
+
+1. Download the [Sleep-EDF Expanded dataset](https://physionet.org/content/sleep-edfx/1.0.0/).
+2. Set `BASE_DIR` in the notebook to the folder that contains the dataset.
+3. Run the cells in order. A GPU is strongly recommended (one training epoch took about 4 minutes on a GPU).
+
+---
+
+## 📁 Repository Structure
 
 ```text
 Sleep-EDF-Thesis/
-├── README.md            # Project overview and documentation
-├── Untitled.ipynb        # Thesis research notebook
-└── .gitignore            # Git ignore rules
+├── Untitled.ipynb            # Full pipeline: loading, preprocessing, model, training, evaluation
+├── images/
+│   ├── confusion_matrix.png
+│   └── training_curves.png
+└── README.md
 ```
 
-> The notebook currently retains its original filename, `Untitled.ipynb`. It can be renamed later to `Sleep_Stage_Classification.ipynb` for clarity; update the link above if you rename it.
-
 ---
 
-## 🚀 Explore the Implementation
+## 📚 References
 
-Open **[the research notebook](./Untitled.ipynb)** to review the code and experimental workflow.
-
-To run the notebook locally, use a compatible Python/Jupyter environment and install the dependencies imported by the notebook. The Sleep-EDF data must be obtained separately from the dataset provider, subject to its terms.
-
----
-
-## 🔬 Research Interests
-
-This thesis strengthened my interest in **Artificial Intelligence, Data Analytics, and applied research**. I am also interested in exploring how data-driven techniques can support intelligent and user-centred web applications.
-
----
-
-## 👨‍💻 Author
-
-**Farhan Labib**  
-B.Sc. in Computer Science and Engineering  
-University of Asia Pacific, Bangladesh
-
-**GitHub:** [@Farhan2580](https://github.com/Farhan2580)
+- Kemp, B., Zwinderman, A. H., Tuk, B., Kamphuisen, H. A. C., & Oberyé, J. J. L. (2000). Analysis of a sleep-dependent neuronal feedback loop: the slow-wave microcontinuity of the EEG. *IEEE Transactions on Biomedical Engineering*, 47(9), 1185–1194.
+- Goldberger, A. L., et al. (2000). PhysioBank, PhysioToolkit, and PhysioNet. *Circulation*, 101(23), e215–e220.
 
 ---
 
 <div align="center">
 
-*Developed as part of an undergraduate research thesis.*
+**Farhan Labib** · B.Sc. in Computer Science and Engineering, University of Asia Pacific
 
 </div>
